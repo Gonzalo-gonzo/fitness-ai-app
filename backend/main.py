@@ -2,27 +2,30 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
-
 app = FastAPI()
 
+# ✅ CORS fix
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 👈 tillåt alla domäner (kan begränsas senare)
+    allow_origins=["*"],  # tillåt frontend på localhost
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Inputmodell
+
+# ✅ Inputmodell
 class UserData(BaseModel):
     name: str
     age: int
-    weight: float   # kg
-    height: float   # cm
-    gender: str     # "male" eller "female"
-    activity: str   # sedentary, light, moderate, active, very_active
-    goal: str       # bulk, cut, maintain
+    weight: float
+    height: float
+    gender: str
+    activity: str
+    goal: str
+    allergies: list[str] = []   # 👈 nytt
+    diet: str = ""              # 👈 nytt
+    targetWeight: float | None = None
 
-# Aktivitetsfaktorer
 activity_factors = {
     "sedentary": 1.2,
     "light": 1.375,
@@ -33,33 +36,30 @@ activity_factors = {
 
 @app.post("/generate_plan")
 def generate_plan(data: UserData):
-    # 1) BMR (Mifflin–St Jeor)
+    # ✅ BMR-beräkning
     if data.gender.lower() == "male":
         bmr = 10 * data.weight + 6.25 * data.height - 5 * data.age + 5
-    else:  # female
+    else:
         bmr = 10 * data.weight + 6.25 * data.height - 5 * data.age - 161
 
-    # 2) TDEE
+    # ✅ TDEE
     activity_factor = activity_factors.get(data.activity.lower(), 1.2)
     tdee = bmr * activity_factor
 
-    # 3) Justera enligt mål
+    # ✅ Kalorimål
     if data.goal.lower() == "bulk":
         calories = tdee + 400
     elif data.goal.lower() == "cut":
         calories = tdee - 400
-    else:  # maintain
+    else:
         calories = tdee
 
-    # 4) Makronutrienter
-    protein = round(data.weight * 2.0)  # 2g per kg kroppsvikt
-    protein_kcal = protein * 4
+    # ✅ Makros
+    protein = round(data.weight * 2.0)
+    fat = round((0.25 * calories) / 9)
+    carbs = round((calories - (protein * 4 + fat * 9)) / 4)
 
-    fat = round((0.25 * calories) / 9)  # 25% av kalorier
-    fat_kcal = fat * 9
-
-    carbs = round((calories - (protein_kcal + fat_kcal)) / 4)
-    
+    # ✅ Svar
     return {
         "user": data.name,
         "bmr": round(bmr),
@@ -70,5 +70,10 @@ def generate_plan(data: UserData):
             "fat_g": fat,
             "carbs_g": carbs
         },
-        "notes": f"Beräkning baserat på {data.activity} aktivitet och mål: {data.goal}"
+        "preferences": {
+            "allergies": data.allergies,
+            "diet": data.diet
+        },
+        "targetWeight": data.targetWeight,
+        "notes": f"Beräkning baserat på {data.activity} aktivitet, mål: {data.goal}"
     }
