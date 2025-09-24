@@ -99,29 +99,25 @@ export default function Home() {
                 <select
                   className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-400"
                   value={form.activity}
-                  onChange={(e) =>
-                    setForm({ ...form, activity: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, activity: e.target.value })}
                 >
-                  <option value="sedentary">Stillastående</option>
-                  <option value="light">Lätt aktiv</option>
-                  <option value="moderate">Måttligt aktiv</option>
-                  <option value="active">Aktiv</option>
-                  <option value="very_active">Väldigt aktiv</option>
+                  <option value="sedentary">Stillastående – ingen träning, kontorsjobb</option>
+                  <option value="light">Lätt aktiv – promenader, lätt träning 1–2 ggr/vecka</option>
+                  <option value="moderate">Måttligt aktiv – träning 3–4 ggr/vecka</option>
+                  <option value="active">Aktiv – träning 5–6 ggr/vecka</option>
+                  <option value="very_active">Väldigt aktiv – daglig hård träning, fysiskt jobb</option>
                 </select>
+
               </div>
             </div>
           </div>
-
-          {/* Sektion 2 – Kostpreferenser */}
-          <div>
-            <h2 className="text-xl font-semibold text-green-600 mb-3">
-              Kostpreferenser
-            </h2>
-            <div className="space-y-3">
+          {/* Sektion 2 – Allergier */}
               <div>
+                            <h2 className="text-xl font-semibold text-green-600 mb-3">
+              Allergier
+            </h2>
                 <label className="block font-medium text-gray-700">
-                  Allergier
+                  
                 </label>
                 <div className="flex gap-4 mt-2">
                   <label>
@@ -151,6 +147,14 @@ export default function Home() {
                 </div>
               </div>
 
+
+          {/* Sektion 3 – Kostpreferenser */}
+          <div>
+            <h2 className="text-xl font-semibold text-green-600 mb-3">
+              Kostpreferenser
+            </h2>
+            <div className="space-y-3">
+
               <div>
                 <label className="block font-medium text-gray-700">
                   Kosttyp
@@ -175,9 +179,8 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Sektion 3 – Mål */}
-          <div>
-            <h2 className="text-xl font-semibold text-green-600 mb-3">Mål</h2>
+          {/* Sektion 4 – Mål */}
+          <div className="grid grid-cols-2 gap-4">
             <select
               className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-400"
               value={form.goal}
@@ -187,16 +190,16 @@ export default function Home() {
               <option value="bulk">Gå upp (bulk)</option>
               <option value="cut">Gå ner (cut)</option>
             </select>
+
             <input
               className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-400"
               placeholder="Målvikt (kg)"
               type="number"
               value={form.targetWeight}
-              onChange={(e) =>
-                setForm({ ...form, targetWeight: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, targetWeight: e.target.value })}
             />
           </div>
+
 
           {/* Skicka-knapp */}
           <button className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-lg shadow-md transition">
