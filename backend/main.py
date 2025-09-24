@@ -1,24 +1,51 @@
-from fastapi import FastAPI
+# backend/main.py
+from typing import Dict, List, Optional
+from fastapi.security import OAuth2PasswordRequestForm
+from datetime import timedelta
+from auth import authenticate_user, ACCESS_TOKEN_EXPIRE_MINUTES
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Optional
-import random
+from sqlmodel import Session, select
 
-app = FastAPI()
+from database import init_db, get_session
+from models import User, MealPlan
+from auth import get_password_hash, verify_password, create_access_token, get_current_user
 
-# CORS för lokal utveckling
+app = FastAPI(title="Fitness AI Backend")
+
+# CORS för lokal dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # strama åt senare
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],  # strama åt senare
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------- Datamodeller ----------
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+# ---------- Schemas ----------
+class RegisterIn(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+# ---------- Kostplan in/out ----------
 class FoodItem(BaseModel):
     mat: str
-    mangd_g: int   # otillagad/rå vikt i gram
+    mangd_g: int
     kcal: int
     protein: int
     fett: int
@@ -38,19 +65,66 @@ class UserInput(BaseModel):
     age: int
     weight: float
     height: float
-    gender: str
-    activity: str
-    goal: str
-    diet: Optional[str] = None
+    gender: str            # "male" | "female"
+    activity: str          # "sedentary" | "light" | "moderate" | "active" | "very_active"
+    goal: str              # "maintain" | "bulk" | "cut"
+    diet: Optional[str] = None   # "" | "vegetarian" | "vegan" | "pescetarian"
     allergies: List[str] = []
     targetWeight: Optional[int] = None
 
-# ---------- Hjälpare ----------
+# ---------- Register/Login ----------
+@app.post("/register", status_code=201)
+def register(data: RegisterIn, session: Session = Depends(get_session)):
+    # kolla unika fält
+    exists = session.exec(select(User).where((User.username == data.username) | (User.email == data.email))).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="Användarnamn eller e-post upptaget.")
+    user = User(
+        username=data.username,
+        email=data.email,
+        hashed_password=get_password_hash(data.password),
+        is_premium=False,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return {"id": user.id, "username": user.username, "email": user.email}
+
+@app.post("/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+    user = authenticate_user(session, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Fel användarnamn eller lösenord")
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username},
+        expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# Exempel på en skyddad route
+@app.get("/me")
+def read_me(current_user: dict = Depends(get_current_user)):
+    return {"username": current_user.username, "email": current_user.email}
+
+@app.get("/me")
+def me(current_user: User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_premium": current_user.is_premium,
+        "created_at": str(current_user.created_at),
+    }
+
+# ---------- Kostplan-beräkning ----------
 def calculate_bmr(weight: float, height: float, age: int, gender: str) -> int:
     if gender == "male":
-        return round(10 * weight + 6.25 * height - 5 * age + 5)
+        bmr = 10 * weight + 6.25 * height - 5 * age + 5
     else:
-        return round(10 * weight + 6.25 * height - 5 * age - 161)
+        bmr = 10 * weight + 6.25 * height - 5 * age - 161
+    return round(bmr)
 
 def activity_factor(level: str) -> float:
     return {
@@ -61,16 +135,40 @@ def activity_factor(level: str) -> float:
         "very_active": 1.9,
     }.get(level, 1.2)
 
-def create_food_item(base: dict, grams: int) -> FoodItem:
-    factor = grams / 100.0
-    return FoodItem(
-        mat=base["mat"],
-        mangd_g=int(grams),
-        kcal=round(base["kcal"] * factor),
-        protein=round(base["protein"] * factor),
-        fett=round(base["fett"] * factor),
-        kolhydrater=round(base["kolhydrater"] * factor),
-    )
+# === Din FOOD_DB och menylogik från tidigare steg ===
+# Förkortad här: klistra in din senaste FOOD_DB, MEAL_SPLIT, MEAL_BLUEPRINTS,
+# matches_diet/allergies, filter_foods, calc_grams_for_calories, create_food_item, meal_items_for
+# --- START: KLIS TRA IN DITT SENASTE BLOCK HÄR ---
+import random
+
+FOOD_DB = [
+    # (klistra in din 40+ lista här, med "category" och "tags" om du använder dem i filter)
+    {"mat": "Kycklingfilé", "kcal": 165, "protein": 31, "fett": 3, "kolhydrater": 0, "category": "protein", "tags": ["animal"]},
+    {"mat": "Ris", "kcal": 130, "protein": 2, "fett": 0, "kolhydrater": 28, "category": "carb", "tags": []},
+    {"mat": "Potatis", "kcal": 77, "protein": 2, "fett": 0, "kolhydrater": 17, "category": "carb", "tags": []},
+    {"mat": "Havregryn", "kcal": 360, "protein": 13, "fett": 7, "kolhydrater": 60, "category": "carb", "tags": ["contains_gluten"]},
+    {"mat": "Banan", "kcal": 90, "protein": 1, "fett": 0, "kolhydrater": 23, "category": "fruit", "tags": []},
+    {"mat": "Ägg", "kcal": 155, "protein": 13, "fett": 11, "kolhydrater": 1, "category": "egg", "tags": ["egg"]},
+    {"mat": "Lax", "kcal": 208, "protein": 20, "fett": 13, "kolhydrater": 0, "category": "fish", "tags": ["fish"]},
+    {"mat": "Broccoli", "kcal": 35, "protein": 3, "fett": 0, "kolhydrater": 7, "category": "veg", "tags": []},
+    # ... (fortsätt med resten som du redan har)
+]
+
+MEAL_SPLIT = {
+    "frukost": 0.20,
+    "mellanmal_1": 0.10,
+    "lunch": 0.30,
+    "pre_workout_meal": 0.15,
+    "middag": 0.25,
+}
+
+MEAL_BLUEPRINTS = {
+    "frukost": [("carb", 0.45), ("protein", 0.40), ("fruit", 0.15)],
+    "mellanmal_1": [("dairy", 0.50), ("fruit", 0.30), ("nuts", 0.20)],
+    "lunch": [("protein", 0.35), ("carb", 0.50), ("veg", 0.15)],
+    "pre_workout_meal": [("carb", 0.60), ("protein", 0.30), ("fruit", 0.10)],
+    "middag": [("protein", 0.40), ("carb", 0.45), ("veg", 0.15)],
+}
 
 def matches_diet(food: dict, diet: Optional[str]) -> bool:
     tags = set(food.get("tags", []))
@@ -95,119 +193,139 @@ def matches_allergies(food: dict, allergies: List[str]) -> bool:
     return True
 
 def filter_foods(category: str, diet: Optional[str], allergies: List[str]) -> List[dict]:
-    return [
-        f for f in FOOD_DB
-        if f["category"] == category
-        and matches_diet(f, diet)
-        and matches_allergies(f, allergies)
-    ]
+    out = []
+    for f in FOOD_DB:
+        if f.get("category") != category:
+            continue
+        if not matches_diet(f, diet):
+            continue
+        if not matches_allergies(f, allergies):
+            continue
+        out.append(f)
+    return out
 
 def calc_grams_for_calories(food: dict, target_kcal: float, min_g: int = 20, max_g: int = 400) -> int:
     grams = int(round((target_kcal / max(food["kcal"], 1)) * 100))
-    return max(min_g, min(max_g, grams))
+    grams = max(min_g, min(max_g, grams))
+    return grams
 
-# ---------- Livsmedelsdatabas (~40 st, 100 g rå/okokt) ----------
-FOOD_DB = [
-    # Protein
-    {"mat": "Kycklingfilé", "kcal": 165, "protein": 31, "fett": 3, "kolhydrater": 0, "category": "protein", "tags": ["animal"]},
-    {"mat": "Nötfärs 10%", "kcal": 217, "protein": 26, "fett": 12, "kolhydrater": 0, "category": "protein", "tags": ["animal"]},
-    {"mat": "Fläskfilé", "kcal": 143, "protein": 21, "fett": 6, "kolhydrater": 0, "category": "protein", "tags": ["animal"]},
-    {"mat": "Lax", "kcal": 208, "protein": 20, "fett": 13, "kolhydrater": 0, "category": "fish", "tags": ["fish"]},
-    {"mat": "Torsk", "kcal": 82, "protein": 18, "fett": 1, "kolhydrater": 0, "category": "fish", "tags": ["fish"]},
-    {"mat": "Tonfisk", "kcal": 132, "protein": 28, "fett": 1, "kolhydrater": 0, "category": "fish", "tags": ["fish"]},
-    {"mat": "Ägg", "kcal": 155, "protein": 13, "fett": 11, "kolhydrater": 1, "category": "egg", "tags": ["animal", "egg"]},
-    {"mat": "Äggvita", "kcal": 52, "protein": 11, "fett": 0, "kolhydrater": 1, "category": "egg", "tags": ["egg"]},
-    {"mat": "Tofu", "kcal": 76, "protein": 8, "fett": 5, "kolhydrater": 2, "category": "protein", "tags": []},
-    {"mat": "Kikärtor", "kcal": 164, "protein": 9, "fett": 3, "kolhydrater": 27, "category": "protein", "tags": []},
-
-    # Kolhydrater
-    {"mat": "Ris", "kcal": 130, "protein": 2, "fett": 0, "kolhydrater": 28, "category": "carb", "tags": []},
-    {"mat": "Potatis", "kcal": 77, "protein": 2, "fett": 0, "kolhydrater": 17, "category": "carb", "tags": []},
-    {"mat": "Sötpotatis", "kcal": 86, "protein": 2, "fett": 0, "kolhydrater": 20, "category": "carb", "tags": []},
-    {"mat": "Pasta", "kcal": 131, "protein": 5, "fett": 1, "kolhydrater": 25, "category": "carb", "tags": ["contains_gluten"]},
-    {"mat": "Quinoa", "kcal": 120, "protein": 4, "fett": 2, "kolhydrater": 21, "category": "carb", "tags": []},
-    {"mat": "Havregryn", "kcal": 360, "protein": 13, "fett": 7, "kolhydrater": 60, "category": "carb", "tags": ["contains_gluten"]},
-    {"mat": "Bröd (fullkorn)", "kcal": 250, "protein": 9, "fett": 3, "kolhydrater": 46, "category": "carb", "tags": ["contains_gluten"]},
-    {"mat": "Knäckebröd", "kcal": 330, "protein": 9, "fett": 1, "kolhydrater": 70, "category": "carb", "tags": ["contains_gluten"]},
-
-    # Frukt
-    {"mat": "Banan", "kcal": 90, "protein": 1, "fett": 0, "kolhydrater": 23, "category": "fruit", "tags": []},
-    {"mat": "Äpple", "kcal": 52, "protein": 0, "fett": 0, "kolhydrater": 14, "category": "fruit", "tags": []},
-    {"mat": "Apelsin", "kcal": 47, "protein": 1, "fett": 0, "kolhydrater": 12, "category": "fruit", "tags": []},
-    {"mat": "Blåbär", "kcal": 57, "protein": 1, "fett": 0, "kolhydrater": 14, "category": "fruit", "tags": []},
-    {"mat": "Jordgubbar", "kcal": 33, "protein": 1, "fett": 0, "kolhydrater": 8, "category": "fruit", "tags": []},
-
-    # Grönsaker
-    {"mat": "Broccoli", "kcal": 35, "protein": 3, "fett": 0, "kolhydrater": 7, "category": "veg", "tags": []},
-    {"mat": "Spenat", "kcal": 23, "protein": 3, "fett": 0, "kolhydrater": 4, "category": "veg", "tags": []},
-    {"mat": "Paprika", "kcal": 31, "protein": 1, "fett": 0, "kolhydrater": 6, "category": "veg", "tags": []},
-    {"mat": "Tomat", "kcal": 18, "protein": 1, "fett": 0, "kolhydrater": 4, "category": "veg", "tags": []},
-    {"mat": "Morot", "kcal": 41, "protein": 1, "fett": 0, "kolhydrater": 10, "category": "veg", "tags": []},
-
-    # Mejeri/nötter/fett
-    {"mat": "Naturell kvarg", "kcal": 68, "protein": 12, "fett": 0, "kolhydrater": 4, "category": "dairy", "tags": ["dairy", "contains_lactose"]},
-    {"mat": "Grekisk yoghurt 10%", "kcal": 120, "protein": 6, "fett": 10, "kolhydrater": 3, "category": "dairy", "tags": ["dairy", "contains_lactose"]},
-    {"mat": "Mjölk 1,5%", "kcal": 45, "protein": 3, "fett": 1, "kolhydrater": 5, "category": "dairy", "tags": ["dairy", "contains_lactose"]},
-    {"mat": "Mandlar", "kcal": 579, "protein": 21, "fett": 50, "kolhydrater": 22, "category": "nuts", "tags": ["contains_nuts"]},
-    {"mat": "Olivolja", "kcal": 884, "protein": 0, "fett": 100, "kolhydrater": 0, "category": "fat", "tags": []},
-]
-
-# ---------- Menygenerator ----------
-MEAL_SPLIT = {
-    "frukost": 0.20,
-    "mellanmal_1": 0.10,
-    "lunch": 0.30,
-    "pre_workout_meal": 0.15,
-    "middag": 0.25,
-}
-
-MEAL_BLUEPRINTS = {
-    "frukost": [("carb", 0.45), ("protein", 0.40), ("fruit", 0.15)],
-    "mellanmal_1": [("dairy", 0.50), ("fruit", 0.30), ("nuts", 0.20)],
-    "lunch": [("protein", 0.35), ("carb", 0.50), ("veg", 0.15)],
-    "pre_workout_meal": [("carb", 0.60), ("protein", 0.30), ("fruit", 0.10)],
-    "middag": [("protein", 0.40), ("carb", 0.45), ("veg", 0.15)],
-}
+def create_food_item(base: dict, grams: int) -> FoodItem:
+    factor = grams / 100.0
+    return FoodItem(
+        mat=base["mat"],
+        mangd_g=int(grams),
+        kcal=round(base["kcal"] * factor),
+        protein=round(base["protein"] * factor),
+        fett=round(base["fett"] * factor),
+        kolhydrater=round(base["kolhydrater"] * factor),
+    )
 
 def pick_food(category: str, diet: Optional[str], allergies: List[str]) -> Optional[dict]:
     candidates = filter_foods(category, diet, allergies)
-    return random.choice(candidates) if candidates else None
+    if not candidates:
+        return None
+    return random.choice(candidates)
 
 def meal_items_for(meal: str, meal_kcal: float, diet: Optional[str], allergies: List[str]) -> List[FoodItem]:
     items: List[FoodItem] = []
     plan = MEAL_BLUEPRINTS[meal]
 
-    for cat, weight in plan:
+    adjusted_plan = []
+    for cat, w in plan:
+        if cat == "dairy":
+            dairy_ok = (diet not in ["vegan"]) and ("laktos" not in allergies)
+            adjusted_plan.append(("dairy" if dairy_ok else "protein", w))
+        else:
+            adjusted_plan.append((cat, w))
+
+    for cat, weight in adjusted_plan:
         food = pick_food(cat, diet, allergies)
         if not food:
+            for fb in ["protein", "carb", "veg", "fruit", "nuts", "fish"]:
+                food = pick_food(fb, diet, allergies)
+                if food:
+                    break
+        if not food:
             continue
-        grams = calc_grams_for_calories(food, meal_kcal * weight)
+        target_k = meal_kcal * weight
+        min_map = {"veg": 60, "fruit": 80, "nuts": 10, "fat": 5}
+        grams = calc_grams_for_calories(food, target_k, min_g=min_map.get(food.get("category", ""), 30))
         items.append(create_food_item(food, grams))
 
-    return items
+    if not items:
+        for fb in ["protein", "carb"]:
+            food = pick_food(fb, diet, allergies)
+            if food:
+                grams = calc_grams_for_calories(food, meal_kcal / 2, min_g=40)
+                items.append(create_food_item(food, grams))
+                break
 
-# ---------- API ----------
+    return items
+# --- SLUT: KLIS TRA IN DITT SENASTE BLOCK HÄR ---
+
 @app.post("/generate_plan", response_model=PlanResult)
-def generate_plan(data: UserInput):
+def generate_plan(
+    data: UserInput,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),  # kräver inloggning
+):
+    # 1) BMR/TDEE & kalorier
     bmr = calculate_bmr(data.weight, data.height, data.age, data.gender)
     tdee = round(bmr * activity_factor(data.activity))
-    calories = tdee + 400 if data.goal == "bulk" else tdee - 400 if data.goal == "cut" else tdee
+    if data.goal == "bulk":
+        calories = tdee + 400
+    elif data.goal == "cut":
+        calories = tdee - 400
+    else:
+        calories = tdee
 
+    # 2) Dagliga makromål
     protein_g = round(2.0 * data.weight)
     fat_g     = round(0.9 * data.weight)
     carbs_g   = max(0, round((calories - (protein_g * 4 + fat_g * 9)) / 4))
 
+    # 3) 5 måltider
     menu: Dict[str, List[FoodItem]] = {}
     for meal, ratio in MEAL_SPLIT.items():
         meal_kcal = calories * ratio
-        menu[meal] = meal_items_for(meal, meal_kcal, data.diet, data.allergies)
+        items = meal_items_for(meal, meal_kcal, data.diet, data.allergies)
+        menu[meal] = items
 
-    return {
-        "user": data.name,
-        "bmr": bmr,
-        "tdee": tdee,
-        "calories": calories,
-        "macros": {"protein_g": protein_g, "fat_g": fat_g, "carbs_g": carbs_g},
-        "targetWeight": data.targetWeight,
-        "menu": menu,
-    }
+    result: PlanResult = PlanResult(
+        user=data.name,
+        bmr=int(bmr),
+        tdee=int(tdee),
+        calories=int(round(calories)),
+        macros={"protein_g": protein_g, "fat_g": fat_g, "carbs_g": carbs_g},
+        targetWeight=data.targetWeight,
+        menu=menu,
+    )
+
+    # 4) Spara i DB kopplat till user
+    mp = MealPlan(user_id=current_user.id, plan_json=result.dict())
+    session.add(mp)
+    session.commit()
+    session.refresh(mp)
+
+    return result
+
+@app.get("/plans")
+def list_plans(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    plans = session.exec(
+        select(MealPlan).where(MealPlan.user_id == current_user.id).order_by(MealPlan.created_at.desc())
+    ).all()
+    return [{"id": p.id, "created_at": str(p.created_at)} for p in plans]
+
+@app.get("/plans/{plan_id}")
+def get_plan(
+    plan_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    plan = session.get(MealPlan, plan_id)
+    if not plan or plan.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Plan hittades inte.")
+    return plan.plan_json

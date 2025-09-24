@@ -1,9 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
   const router = useRouter();
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.push("/login"); // 👈 skicka till login om ingen token finns
+    }
+  }, [router]);
 
   const [form, setForm] = useState({
     name: "",
@@ -27,23 +34,46 @@ export default function Home() {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const params = new URLSearchParams({
-      name: form.name,
-      age: String(form.age),
-      weight: String(form.weight),
-      height: String(form.height),
-      gender: form.gender,
-      activity: form.activity,
-      goal: form.goal,
-      diet: form.diet,
-      targetWeight: form.targetWeight,
-      allergies: JSON.stringify(form.allergies), // skicka som JSON-sträng
-    });
+    try {
+      const res = await fetch("http://127.0.0.1:8080/generate_plan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`, // 👈 måste skickas med
+        },
+        body: JSON.stringify({
+          name: form.name,
+          age: Number(form.age),
+          weight: Number(form.weight),
+          height: Number(form.height),
+          gender: form.gender,
+          activity: form.activity,
+          goal: form.goal,
+          diet: form.diet,
+          targetWeight: form.targetWeight ? Number(form.targetWeight) : undefined,
+          allergies: form.allergies,
+        }),
+      });
 
-    router.push(`/kostschema?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error("Fel vid generering av kostplan");
+      }
+
+      const data = await res.json();
+      router.push(`/kostschema?plan=${encodeURIComponent(JSON.stringify(data))}`);
+    } catch (err) {
+      console.error(err);
+      alert("Något gick fel, försök igen.");
+    }
+  };
+
+  // 👇 Funktion för att logga ut
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    router.push("/login");
   };
 
   return (
@@ -107,46 +137,42 @@ export default function Home() {
                   <option value="active">Aktiv – träning 5–6 ggr/vecka</option>
                   <option value="very_active">Väldigt aktiv – daglig hård träning, fysiskt jobb</option>
                 </select>
-
               </div>
             </div>
           </div>
+
           {/* Sektion 2 – Allergier */}
-              <div>
-                            <h2 className="text-xl font-semibold text-green-600 mb-3">
+          <div>
+            <h2 className="text-xl font-semibold text-green-600 mb-3">
               Allergier
             </h2>
-                <label className="block font-medium text-gray-700">
-                  
-                </label>
-                <div className="flex gap-4 mt-2">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={form.allergies.includes("gluten")}
-                      onChange={() => handleCheckbox("gluten")}
-                    />{" "}
-                    Gluten
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={form.allergies.includes("laktos")}
-                      onChange={() => handleCheckbox("laktos")}
-                    />{" "}
-                    Laktos
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={form.allergies.includes("nötter")}
-                      onChange={() => handleCheckbox("nötter")}
-                    />{" "}
-                    Nötter
-                  </label>
-                </div>
-              </div>
-
+            <div className="flex gap-4 mt-2">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.allergies.includes("gluten")}
+                  onChange={() => handleCheckbox("gluten")}
+                />{" "}
+                Gluten
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.allergies.includes("laktos")}
+                  onChange={() => handleCheckbox("laktos")}
+                />{" "}
+                Laktos
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.allergies.includes("nötter")}
+                  onChange={() => handleCheckbox("nötter")}
+                />{" "}
+                Nötter
+              </label>
+            </div>
+          </div>
 
           {/* Sektion 3 – Kostpreferenser */}
           <div>
@@ -154,7 +180,6 @@ export default function Home() {
               Kostpreferenser
             </h2>
             <div className="space-y-3">
-
               <div>
                 <label className="block font-medium text-gray-700">
                   Kosttyp
@@ -200,12 +225,17 @@ export default function Home() {
             />
           </div>
 
-
           {/* Skicka-knapp */}
           <button className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-lg shadow-md transition">
             Generera plan
           </button>
         </form>
+        <button
+          onClick={handleLogout}
+          className="w-full mt-6 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-lg shadow-md transition"
+        >
+          Logga ut
+        </button>
       </div>
     </main>
   );
