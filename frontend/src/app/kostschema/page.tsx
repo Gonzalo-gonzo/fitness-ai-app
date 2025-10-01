@@ -58,86 +58,90 @@ export default function KostschemaPage() {
     }
   }, [searchParams]);
 
-  // ✅ PDF-knappfunktion
-  const handleDownloadPDF = () => {
-    if (!result) return;
+// ✅ PDF-knappfunktion
+const handleDownloadPDF = () => {
+  if (!result) return;
 
-    const doc = new jsPDF();
+  const doc = new jsPDF();
 
-    // Header
-    doc.setFontSize(16);
-    doc.text(`Kostschema – ${result.user}`, 14, 16);
-    doc.setFontSize(10);
-    doc.text(
-      `BMR: ${result.bmr}  •  TDEE: ${result.tdee}  •  Kalorier/dag: ${result.calories}`,
-      14,
-      22
-    );
-    if (result.targetWeight) {
-      doc.text(`Målvikt: ${result.targetWeight} kg`, 14, 28);
-    }
+  // Header
+  doc.setFontSize(16);
+  doc.text(`Kostschema – ${result.user}`, 14, 16);
+  doc.setFontSize(10);
+  doc.text(
+    `BMR: ${result.bmr}  •  TDEE: ${result.tdee}  •  Kalorier/dag: ${result.calories}`,
+    14,
+    22
+  );
+  if (result.targetWeight) {
+    doc.text(`Målvikt: ${result.targetWeight} kg`, 14, 28);
+  }
 
-    let y = result.targetWeight ? 36 : 32;
+  let y = result.targetWeight ? 36 : 32;
 
-    const meals: Array<[keyof typeof result.menu, string]> = [
-      ["frukost", "Frukost"],
-      ["mellanmal_1", "Mellanmål 1"],
-      ["lunch", "Lunch"],
-      ["pre_workout_meal", "Pre-workout"],
-      ["middag", "Middag"],
-    ];
+  const meals: Array<[keyof typeof result.menu, string]> = [
+    ["frukost", "Frukost"],
+    ["mellanmal_1", "Mellanmål 1"],
+    ["lunch", "Lunch"],
+    ["pre_workout_meal", "Pre-workout"],
+    ["middag", "Middag"],
+  ];
 
-    meals.forEach(([key, title]) => {
-      doc.setFontSize(12);
-      doc.text(title, 14, y);
-      y += 4;
+  meals.forEach(([key, title]) => {
+    const items = result.menu[key];
+    if (!items || items.length === 0) return; // 👈 hoppa över om undefined eller tom
 
-      const rows = result.menu[key].map((f) => [
-        f.mat,
-        `${f.mangd_g} g`,
-        `${f.kcal}`,
-        `${f.protein} g`,
-        `${f.fett} g`,
-        `${f.kolhydrater} g`,
-      ]);
-
-      autoTable(doc, {
-        head: [["Mat", "Gram", "kcal", "Protein", "Fett", "Kolhydrater"]],
-        body: rows,
-        startY: y,
-        margin: { left: 14, right: 14 },
-        styles: { fontSize: 9, cellPadding: 2 },
-        headStyles: { fillColor: [34, 197, 94] },
-        theme: "grid",
-      });
-
-      // @ts-expect-error — lastAutoTable finns runtime
-      y = doc.lastAutoTable.finalY + 8;
-    });
-
-    // Totalt för dagen
     doc.setFontSize(12);
-    doc.text("Totalt för dagen", 14, y);
+    doc.text(title, 14, y);
     y += 4;
 
+    const rows = (result.menu[key] || []).map((f) => [
+      f.mat,
+      `${f.mangd_g} g`,
+      `${f.kcal}`,
+      `${f.protein} g`,
+      `${f.fett} g`,
+      `${f.kolhydrater} g`,
+    ]);
+
     autoTable(doc, {
-      head: [["Kalorier", "Protein", "Fett", "Kolhydrater"]],
-      body: [
-        [
-          `${result.calories} kcal`,
-          `${result.macros.protein_g} g`,
-          `${result.macros.fat_g} g`,
-          `${result.macros.carbs_g} g`,
-        ],
-      ],
+      head: [["Mat", "Gram", "kcal", "Protein", "Fett", "Kolhydrater"]],
+      body: rows,
       startY: y,
       margin: { left: 14, right: 14 },
-      styles: { fontSize: 10, cellPadding: 2 },
-      theme: "striped",
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [34, 197, 94] },
+      theme: "grid",
     });
 
-    doc.save(`${result.user || "kostschema"}.pdf`);
-  };
+    // @ts-expect-error — lastAutoTable finns runtime
+    y = doc.lastAutoTable.finalY + 8;
+  });
+
+  // Totalt för dagen
+  doc.setFontSize(12);
+  doc.text("Totalt för dagen", 14, y);
+  y += 4;
+
+  autoTable(doc, {
+    head: [["Kalorier", "Protein", "Fett", "Kolhydrater"]],
+    body: [
+      [
+        `${result.calories} kcal`,
+        `${result.macros.protein_g} g`,
+        `${result.macros.fat_g} g`,
+        `${result.macros.carbs_g} g`,
+      ],
+    ],
+    startY: y,
+    margin: { left: 14, right: 14 },
+    styles: { fontSize: 10, cellPadding: 2 },
+    theme: "striped",
+  });
+
+  doc.save(`${result.user || "kostschema"}.pdf`);
+};
+
 
   if (!result) return <p>Laddar kostschema...</p>;
 

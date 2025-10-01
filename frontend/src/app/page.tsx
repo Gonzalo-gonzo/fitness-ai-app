@@ -1,14 +1,16 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Navbar from "@/components/Navbar";
 
 export default function Home() {
   const router = useRouter();
 
+  // ⛔️ Skydda sidan: kräver token
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
-      router.push("/login"); // 👈 skicka till login om ingen token finns
+      router.push("/login");
     }
   }, [router]);
 
@@ -17,7 +19,7 @@ export default function Home() {
     age: "",
     weight: "",
     height: "",
-    gender: "male",
+    gender: "male",           // ✅ lades till
     activity: "moderate",
     goal: "maintain",
     allergies: [] as string[],
@@ -42,14 +44,14 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("token")}`, // 👈 måste skickas med
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
         body: JSON.stringify({
           name: form.name,
           age: Number(form.age),
           weight: Number(form.weight),
           height: Number(form.height),
-          gender: form.gender,
+          gender: form.gender, // ✅ skickas med
           activity: form.activity,
           goal: form.goal,
           diet: form.diet,
@@ -58,9 +60,7 @@ export default function Home() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error("Fel vid generering av kostplan");
-      }
+      if (!res.ok) throw new Error("Fel vid generering av kostplan");
 
       const data = await res.json();
       router.push(`/kostschema?plan=${encodeURIComponent(JSON.stringify(data))}`);
@@ -70,20 +70,20 @@ export default function Home() {
     }
   };
 
-  // 👇 Funktion för att logga ut
+  // 🔴 Logga ut
   const handleLogout = () => {
     localStorage.removeItem("token");
     router.push("/login");
   };
 
   return (
-    <main className="bg-gray-50 min-h-screen py-10 px-6">
+    <main className="bg-gray-50 min-h-screen py-10 px-6 pb-24">
       <div className="max-w-xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-2">
           🥦 Generera kostplan
         </h1>
 
-        {/* Formulär */}
+        {/* Formulär — UI oförändrat förutom gender-fältet */}
         <form
           onSubmit={handleSubmit}
           className="bg-white shadow-md rounded-xl p-6 space-y-6"
@@ -121,6 +121,19 @@ export default function Home() {
                 value={form.height}
                 onChange={(e) => setForm({ ...form, height: e.target.value })}
               />
+
+              {/* ✅ Nytt: Kön */}
+              <div>
+                <label className="block font-medium text-gray-700 mb-1">Kön</label>
+                <select
+                  className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-green-400"
+                  value={form.gender}
+                  onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                >
+                  <option value="male">Man</option>
+                  <option value="female">Kvinna</option>
+                </select>
+              </div>
 
               <div>
                 <h2 className="text-xl font-semibold text-green-600 mb-3">
@@ -196,7 +209,7 @@ export default function Home() {
                 </select>
               </div>
 
-              {/* Premiumfält */}
+              {/* Premiumfält (oförändrat) */}
               <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-gray-500 flex items-center justify-between">
                 <span>🍽️ Maträtter jag inte gillar</span>
                 <span className="text-sm text-orange-500">Premium 🔒</span>
@@ -229,14 +242,20 @@ export default function Home() {
           <button className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-lg shadow-md transition">
             Generera plan
           </button>
+
+          {/* Logga ut-knapp (som du ville ha längst ner) */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full mt-6 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-lg shadow-md transition"
+          >
+            Logga ut
+          </button>
         </form>
-        <button
-          onClick={handleLogout}
-          className="w-full mt-6 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-lg shadow-md transition"
-        >
-          Logga ut
-        </button>
       </div>
+
+      {/* 🔽 Ikon-navigering längst ner (inga andra UI-ändringar) */}
+      <Navbar />
     </main>
   );
 }
